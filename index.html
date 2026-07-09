@@ -35,7 +35,6 @@
             display: flex;
             overflow-x: auto;
             scroll-snap-type: x mandatory;
-            scroll-behavior: smooth;
             flex-grow: 1;
             -webkit-overflow-scrolling: touch;
         }
@@ -184,7 +183,7 @@
         ];
 
         const container = document.getElementById('swiperContainer');
-        let currentPanelIndex = 0;
+        let isHandlingJump = false;
 
         function generateDotsMarkup(activeIndex) {
             return parkIds.map((_, idx) => 
@@ -192,43 +191,57 @@
             ).join('');
         }
 
-        // Helper function to strip messy subtitles and fluff from attraction names
         function cleanRideName(name) {
             return name
-                .replace(/[\u2014\u2013-].*$/, '') // Strips everything after dashes (removes " - Presented by...")
-                .replace(/\b(featuring|starring|presents|inspired by)\b.*/i, '') // Strips "featuring..." descriptive tails
-                .replace(/\b(The Ride|The Attraction|3D|4D)\b/gi, '') // Strips generic ride identifiers
+                .replace(/[\u2014\u2013-].*$/, '') 
+                .replace(/\b(featuring|starring|presents|inspired by)\b.*/i, '') 
+                .replace(/\b(The Ride|The Attraction|3D|4D)\b/gi, '') 
                 .trim();
         }
 
+        // Build HTML pages including cloned elements on both ends for seamless infinite scrolling
         function initApp() {
+            // 1. Create a clone of the LAST element at the very beginning
+            createPageElement(parkIds[parkIds.length - 1], parkIds.length - 1, 'clone-last');
+
+            // 2. Create the normal original elements
             parkIds.forEach((park, index) => {
-                const page = document.createElement('div');
-                page.className = 'park-page';
-                page.id = `park-${index}`;
-                
-                const brandClass = park.brand.toLowerCase() === 'disney' ? 'disney-park' : 'universal-park';
-                
-                page.innerHTML = `
-                    <div class="park-header ${brandClass}">
-                        <div class="park-title">${park.name}</div>
-                        <div class="park-brand">${park.brand}</div>
-                        <div class="nav-dots" id="dots-park-${index}">
-                            ${generateDotsMarkup(0)}
-                        </div>
-                    </div>
-                    <div class="ride-list" id="list-${park.id}">
-                        <div class="status-msg">Loading live times...</div>
-                    </div>
-                `;
-                container.appendChild(page);
+                createPageElement(park, index, `real-${index}`);
             });
 
-            // Run initial load across all parks
+            // 3. Create a clone of the FIRST element at the very end
+            createPageElement(parkIds[0], 0, 'clone-first');
+
+            // Initialize position centered over the first genuine panel (index 1)
+            window.addEventListener('load', () => {
+                const width = container.clientWidth;
+                container.scrollLeft = width;
+            });
+
+            // Fetch live data once globally
             fetchAllParkTimes();
-            
-            // Set up strict top-of-the-minute synchronization
             scheduleTopOfTheMinuteRefresh();
+        }
+
+        function createPageElement(park, functionalIndex, identityClass) {
+            const page = document.createElement('div');
+            page.className = `park-page ${identityClass}`;
+            
+            const brandClass = park.brand.toLowerCase() === 'disney' ? 'disney-park' : 'universal-park';
+            
+            page.innerHTML = `
+                <div class="park-header ${brandClass}">
+                    <div class="park-title">${park.name}</div>
+                    <div class="park-brand">${park.brand}</div>
+                    <div class="nav-dots">
+                        ${generateDotsMarkup(functionalIndex)}
+                    </div>
+                </div>
+                <div class="ride-list" data-id="${park.id}">
+                    <div class="status-msg">Loading live times...</div>
+                </div>
+            `;
+            container.appendChild(page);
         }
 
         async function fetchAllParkTimes() {
@@ -236,7 +249,8 @@
         }
 
         async function fetchParkData(parkId) {
-            const listElement = document.getElementById(`list-${parkId}`);
+            // Select all lists matching this ID (updates clones and original structures simultaneously)
+            const listElements = document.querySelectorAll(`.ride-list[data-id="${parkId}"]`);
             try {
                 const response = await fetch(`https://api.themeparks.wiki/v1/entity/${parkId}/live`);
                 if (!response.ok) throw new Error('Network error');
@@ -258,7 +272,7 @@
                 });
 
                 if (attractions.length === 0) {
-                    listElement.innerHTML = `<div class="status-msg">No active rides found or park is closed.</div>`;
+                    listElements.forEach(el => el.innerHTML = `<div class="status-msg">No active rides found or park is closed.</div>`);
                     return;
                 }
 
@@ -267,4 +281,111 @@
                     const waitB = (b.queue && b.queue.STANDBY) ? (b.queue.STANDBY.waitTime || 0) : -1;
                     
                     if (a.status !== "OPERATING" && b.status === "OPERATING") return 1;
-                    if (a.status === "OPER
+                    if (a.status === "OPERATING" && b.status !== "OPERATING") return -1;
+                    
+                    return waitB - waitA;
+                });
+
+                const contentMarkup = attractions.map(ride => {
+                    const isOpen = ride.status === "OPERATING";
+                    const waitTime = (isOpen && ride.queue && ride.queue.STANDBY) ? ride.queue.STANDBY.waitTime : null;
+                    
+                    let waitDisplay = "CLOSED";
+                    let colorClass = "closed";
+
+                    if (isOpen) {
+                        if (waitTime !== null) {
+                            waitDisplay = `${waitTime} min`;
+                            if (waitTime > 45) colorClass = "high";
+                            else if (waitTime > 20) colorClass = "moderate";
+                            else colorClass = "";
+                        } else {
+                            waitDisplay = "OPEN";
+                            colorClass = "";
+                        }
+                    }
+
+                    return `
+                        <div class="ride-card">
+                            <div class="ride-info">
+                                <div class="ride-name">${cleanRideName(ride.name)}</div>
+                                <div class="ride-status">${ride.status.replace('_', ' ')}</div>
+                            </div>
+                            <div class="ride-wait ${colorClass}">${waitDisplay}</div>
+                        </div>
+                    `;
+                }).join('');
+
+                listElements.forEach(el => el.innerHTML = contentMarkup);
+
+            } catch (error) {
+                console.error(`Error fetching data for ${parkId}:`, error);
+            }
+        }
+
+        function scheduleTopOfTheMinuteRefresh() {
+            const now = new Date();
+            const msUntilNextMinute = (60 - now.getSeconds()) * 1000 - now.getMilliseconds();
+            
+            setTimeout(() => {
+                fetchAllParkTimes();
+                setInterval(fetchAllParkTimes, 60000);
+            }, msUntilNextMinute);
+        }
+
+        // Detect container scroll to handle the index transitions and infinite loops
+        container.addEventListener('scroll', () => {
+            const width = container.clientWidth;
+            if (width === 0) return;
+
+            const scrollLeft = container.scrollLeft;
+            const totalPanels = parkIds.length + 2; // original + 2 clones
+
+            // 1. Core infinite wrap-around execution tracking
+            if (!isHandlingJump) {
+                if (scrollLeft <= 0) {
+                    // Left extreme clone edge hit -> Teleport instantly back to the real final panel
+                    isHandlingJump = true;
+                    container.style.scrollBehavior = 'auto'; // Disable transitions temporarily
+                    container.scrollLeft = width * parkIds.length;
+                    isHandlingJump = false;
+                    return;
+                } else if (scrollLeft >= width * (totalPanels - 1)) {
+                    // Right extreme clone edge hit -> Teleport instantly back to the real first panel
+                    isHandlingJump = true;
+                    container.style.scrollBehavior = 'auto';
+                    container.scrollLeft = width;
+                    isHandlingJump = false;
+                    return;
+                }
+            }
+
+            // Restore fluid scrolling for normal interactions
+            container.style.scrollBehavior = 'smooth';
+
+            // 2. Dynamically calculate which original dot must highlight
+            const activeRawIndex = Math.round(scrollLeft / width);
+            let mapToOriginalIndex = activeRawIndex - 1;
+
+            if (mapToOriginalIndex < 0) mapToOriginalIndex = parkIds.length - 1;
+            if (mapToOriginalIndex >= parkIds.length) mapToOriginalIndex = 0;
+
+            // Re-render dots accurately on headers across all generated elements
+            const allNavContainers = document.querySelectorAll('.nav-dots');
+            allNavContainers.forEach(wrapper => {
+                wrapper.innerHTML = generateDotsMarkup(mapToOriginalIndex);
+            });
+        });
+
+        // Resize support to prevent alignment breaking if changing orientations
+        window.addEventListener('resize', () => {
+            const width = container.clientWidth;
+            const activeRawIndex = Math.round(container.scrollLeft / width);
+            container.style.scrollBehavior = 'auto';
+            container.scrollLeft = activeRawIndex * width;
+        });
+
+        initApp();
+    </script>
+</body>
+</html>
