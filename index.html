@@ -58,18 +58,18 @@
             display: flex;
             flex-direction: column;
             overflow-y: auto;
-            position: relative; /* Context for sticky header */
+            position: relative;
         }
 
-        /* FIXED FIXED FIXED: Absolute top anchoring and masking layer */
+        /* Sticky Header Mask Layer */
         .park-header {
             text-align: center;
             padding: 20px 0 15px 0;
             border-bottom: 2px solid;
-            background-color: var(--bg-color); /* Solid mask color */
+            background-color: var(--bg-color);
             position: sticky;
-            top: 0; /* Pinned at exactly 0px */
-            z-index: 10; /* Ensures it stays on top of cards */
+            top: 0;
+            z-index: 10;
             width: 100%;
         }
 
@@ -118,7 +118,7 @@
             max-width: 600px;
             width: 100%;
             margin: 0 auto;
-            padding: 10px 20px 40px 20px; /* Added spacing around lists */
+            padding: 10px 20px 40px 20px;
         }
 
         .ride-card {
@@ -184,11 +184,21 @@
         ];
 
         const container = document.getElementById('swiperContainer');
+        let currentPanelIndex = 0;
 
         function generateDotsMarkup(activeIndex) {
             return parkIds.map((_, idx) => 
                 `<div class="dot ${idx === activeIndex ? 'active' : ''}"></div>`
             ).join('');
+        }
+
+        // Helper function to strip messy subtitles and fluff from attraction names
+        function cleanRideName(name) {
+            return name
+                .replace(/[\u2014\u2013-].*$/, '') // Strips everything after dashes (removes " - Presented by...")
+                .replace(/\b(featuring|starring|presents|inspired by)\b.*/i, '') // Strips "featuring..." descriptive tails
+                .replace(/\b(The Ride|The Attraction|3D|4D)\b/gi, '') // Strips generic ride identifiers
+                .trim();
         }
 
         function initApp() {
@@ -212,9 +222,17 @@
                     </div>
                 `;
                 container.appendChild(page);
-
-                fetchParkData(park.id);
             });
+
+            // Run initial load across all parks
+            fetchAllParkTimes();
+            
+            // Set up strict top-of-the-minute synchronization
+            scheduleTopOfTheMinuteRefresh();
+        }
+
+        async function fetchAllParkTimes() {
+            parkIds.forEach(park => fetchParkData(park.id));
         }
 
         async function fetchParkData(parkId) {
@@ -249,60 +267,4 @@
                     const waitB = (b.queue && b.queue.STANDBY) ? (b.queue.STANDBY.waitTime || 0) : -1;
                     
                     if (a.status !== "OPERATING" && b.status === "OPERATING") return 1;
-                    if (a.status === "OPERATING" && b.status !== "OPERATING") return -1;
-                    
-                    return waitB - waitA;
-                });
-
-                listElement.innerHTML = attractions.map(ride => {
-                    const isOpen = ride.status === "OPERATING";
-                    const waitTime = (isOpen && ride.queue && ride.queue.STANDBY) ? ride.queue.STANDBY.waitTime : null;
-                    
-                    let waitDisplay = "CLOSED";
-                    let colorClass = "closed";
-
-                    if (isOpen) {
-                        if (waitTime !== null) {
-                            waitDisplay = `${waitTime} min`;
-                            if (waitTime > 45) colorClass = "high";
-                            else if (waitTime > 20) colorClass = "moderate";
-                            else colorClass = "";
-                        } else {
-                            waitDisplay = "OPEN";
-                            colorClass = "";
-                        }
-                    }
-
-                    return `
-                        <div class="ride-card">
-                            <div class="ride-info">
-                                <div class="ride-name">${ride.name}</div>
-                                <div class="ride-status">${ride.status.replace('_', ' ')}</div>
-                            </div>
-                            <div class="ride-wait ${colorClass}">${waitDisplay}</div>
-                        </div>
-                    `;
-                }).join('');
-
-            } catch (error) {
-                console.error(`Error fetching data for ${parkId}:`, error);
-                listElement.innerHTML = `<div class="status-msg" style="color: #ff3b30;">Failed to load times. Pull down or reload page.</div>`;
-            }
-        }
-
-        container.addEventListener('scroll', () => {
-            const width = container.clientWidth;
-            const activeIndex = Math.round(container.scrollLeft / width);
-            
-            parkIds.forEach((_, index) => {
-                const dotsWrapper = document.getElementById(`dots-park-${index}`);
-                if (dotsWrapper) {
-                    dotsWrapper.innerHTML = generateDotsMarkup(activeIndex);
-                }
-            });
-        });
-
-        initApp();
-    </script>
-</body>
-</html>
+                    if (a.status === "OPER
