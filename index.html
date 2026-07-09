@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Orlando Theme Park Wait Times</title>
+    <style>
+        :root {
+            --bg-color: #121214;
+            --card-bg: #1e1e24;
+            --text-color: #f5f5f7;
+            --accent-color: #0071e3;
+            --disney-color: #00bcd4;
+            --universal-color: #ff9800;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Fixed Navigation Header */
+        header {
+            background-color: rgba(30, 30, 36, 0.95);
+            padding: 15px;
+            text-align: center;
+            border-bottom: 1px solid #2d2d35;
+            z-index: 10;
+        }
+
+        header h1 {
+            font-size: 1.2rem;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+
+        .nav-dots {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: #444;
+            transition: background-color 0.3s, transform 0.3s;
+        }
+
+        .dot.active {
+            background-color: var(--accent-color);
+            transform: scale(1.2);
+        }
+
+        /* Swipe Container using CSS Scroll Snapping */
+        .swiper-container {
+            display: flex;
+            overflow-x: auto;
+            scroll-snap-type: x mandatory;
+            scroll-behavior: smooth;
+            flex-grow: 1;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        /* Hide Scrollbar */
+        .swiper-container::-webkit-scrollbar {
+            display: none;
+        }
+        .swiper-container {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        /* Individual Park Page */
+        .park-page {
+            flex: 0 0 100%;
+            width: 100%;
+            height: 100%;
+            scroll-snap-align: start;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            padding: 20px;
+        }
+
+        .park-header {
+            text-align: center;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid;
+        }
+
+        .disney-park { border-color: var(--disney-color); }
+        .universal-park { border-color: var(--universal-color); }
+
+        .park-title {
+            font-size: 1.8rem;
+            font-weight: 800;
+        }
+
+        .park-brand {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            opacity: 0.7;
+            margin-top: 4px;
+        }
+
+        /* Ride List Layout */
+        .ride-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            max-width: 600px;
+            width: 100%;
+            margin: 0 auto;
+        }
+
+        .ride-card {
+            background-color: var(--card-bg);
+            border-radius: 12px;
+            padding: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .ride-info {
+            flex-grow: 1;
+            padding-right: 15px;
+        }
+
+        .ride-name {
+            font-weight: 600;
+            font-size: 1rem;
+            margin-bottom: 4px;
+        }
+
+        .ride-status {
+            font-size: 0.8rem;
+            opacity: 0.6;
+        }
+
+        .ride-wait {
+            font-size: 1.4rem;
+            font-weight: 700;
+            min-width: 70px;
+            text-align: right;
+            color: #4cd964;
+        }
+
+        .ride-wait.moderate { color: #ffcc00; }
+        .ride-wait.high { color: #ff3b30; }
+        .ride-wait.closed { color: #8e8e93; font-size: 1rem; }
+
+        /* Loading & Error States */
+        .status-msg {
+            text-align: center;
+            margin: 40px auto;
+            font-style: italic;
+            opacity: 0.7;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>ORLANDO WAIT TIMES</h1>
+        <div class="nav-dots" id="navDots"></div>
+    </header>
+
+    <div class="swiper-container" id="swiperContainer"></div>
+
+    <script>
+        const parkIds = [
+            { name: "MAGIC KINGDOM", id: "75ea578a-adc8-4116-a54d-dccb60765ef9", brand: "Disney" },
+            { name: "EPCOT", id: "47f90d2c-e191-4239-a466-5892ef59a88b", brand: "Disney" },
+            { name: "HOLLYWOOD STUDIOS", id: "288747d1-8b4f-4a64-867e-ea7c9b27bad8", brand: "Disney" },
+            { name: "ANIMAL KINGDOM", id: "1c84a229-8862-4648-9c71-378ddd2c7693", brand: "Disney" },
+            { name: "UNIVERSAL STUDIOS FLORIDA", id: "eb3f4560-2383-4a36-9152-6b3e5ed6bc57", brand: "Universal" },
+            { name: "ISLANDS OF ADVENTURE", id: "267615cc-8943-4c2a-ae2c-5da728ca591f", brand: "Universal" },
+            { name: "EPIC UNIVERSE", id: "12dbb85b-265f-44e6-bccf-f1faa17211fc", brand: "Universal" }
+        ];
+
+        const container = document.getElementById('swiperContainer');
+        const dotsContainer = document.getElementById('navDots');
+
+        // Initialize structure and components
+        function initApp() {
+            parkIds.forEach((park, index) => {
+                // 1. Build Page Elements
+                const page = document.createElement('div');
+                page.className = 'park-page';
+                page.id = `park-${index}`;
+                
+                const brandClass = park.brand.toLowerCase() === 'disney' ? 'disney-park' : 'universal-park';
+                
+                page.innerHTML = `
+                    <div class="park-header ${brandClass}">
+                        <div class="park-title">${park.name}</div>
+                        <div class="park-brand">${park.brand}</div>
+                    </div>
+                    <div class="ride-list" id="list-${park.id}">
+                        <div class="status-msg">Loading live times...</div>
+                    </div>
+                `;
+                container.appendChild(page);
+
+                // 2. Build Navigation Dots
+                const dot = document.createElement('div');
+                dot.className = `dot ${index === 0 ? 'active' : ''}`;
+                dotsContainer.appendChild(dot);
+
+                // 3. Fetch Data for this park
+                fetchParkData(park.id);
+            });
+        }
+
+        // Fetch Live Data from ThemeParks.wiki
+        async function fetchParkData(parkId) {
+            const listElement = document.getElementById(`list-${parkId}`);
+            try {
+                const response = await fetch(`https://api.themeparks.wiki/v1/entity/${parkId}/live`);
+                if (!response.ok) throw new Error('Network error');
+                
+                const data = await response.json();
+                
+                // Filter only ATTRACTION types that have active queues
+                const attractions = (data.liveData || []).filter(item => item.entityType === "ATTRACTION");
+
+                if (attractions.length === 0) {
+                    listElement.innerHTML = `<div class="status-msg">No active ride data found or park is closed.</div>`;
+                    return;
+                }
+
+                // Sort Alphabetically
+                attractions.sort((a, b) => a.name.localeCompare(b.name));
+
+                listElement.innerHTML = attractions.map(ride => {
+                    const isOpen = ride.status === "OPERATING";
+                    // Access the standby wait time path safely based on API response structure
+                    const waitTime = (isOpen && ride.queue && ride.queue.STANDBY) ? ride.queue.STANDBY.waitTime : null;
+                    
+                    let waitDisplay = "CLOSED";
+                    let colorClass = "closed";
+
+                    if (isOpen) {
+                        if (waitTime !== null) {
+                            waitDisplay = `${waitTime} min`;
+                            if (waitTime > 45) colorClass = "high";
+                            else if (waitTime > 20) colorClass = "moderate";
+                            else colorClass = "";
+                        } else {
+                            waitDisplay = "OPEN";
+                            colorClass = "";
+                        }
+                    }
+
+                    return `
+                        <div class="ride-card">
+                            <div class="ride-info">
+                                <div class="ride-name">${ride.name}</div>
+                                <div class="ride-status">${ride.status.replace('_', ' ')}</div>
+                            </div>
+                            <div class="ride-wait ${colorClass}">${waitDisplay}</div>
+                        </div>
+                    `;
+                }).join('');
+
+            } catch (error) {
+                console.error(`Error fetching data for ${parkId}:`, error);
+                listElement.innerHTML = `<div class="status-msg" style="color: #ff3b30;">Failed to load times. Pull down or reload page.</div>`;
+            }
+        }
+
+        // Track swipe position to update top dots dynamically
+        container.addEventListener('scroll', () => {
+            const width = container.clientWidth;
+            const activeIndex = Math.round(container.scrollLeft / width);
+            
+            const dots = document.querySelectorAll('.dot');
+            dots.forEach((dot, idx) => {
+                if (idx === activeIndex) {
+                    dot.classList.add('active');
+                } else {
+                    dot.classList.remove('active');
+                }
+            });
+        });
+
+        // Run app
+        initApp();
+    </script>
+</body>
+</html>
