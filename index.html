@@ -30,40 +30,6 @@
             flex-direction: column;
         }
 
-        /* Fixed Navigation Header */
-        header {
-            background-color: rgba(30, 30, 36, 0.95);
-            padding: 15px;
-            text-align: center;
-            border-bottom: 1px solid #2d2d35;
-            z-index: 10;
-        }
-
-        header h1 {
-            font-size: 1.2rem;
-            letter-spacing: 1px;
-            margin-bottom: 8px;
-        }
-
-        .nav-dots {
-            display: flex;
-            justify-content: center;
-            gap: 8px;
-        }
-
-        .dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background-color: #444;
-            transition: background-color 0.3s, transform 0.3s;
-        }
-
-        .dot.active {
-            background-color: var(--accent-color);
-            transform: scale(1.2);
-        }
-
         /* Swipe Container using CSS Scroll Snapping */
         .swiper-container {
             display: flex;
@@ -92,14 +58,19 @@
             display: flex;
             flex-direction: column;
             overflow-y: auto;
-            padding: 20px;
+            position: relative; /* Context for sticky header */
         }
 
+        /* FIXED FIXED FIXED: Absolute top anchoring and masking layer */
         .park-header {
             text-align: center;
-            margin-bottom: 20px;
-            padding-bottom: 10px;
+            padding: 20px 0 15px 0;
             border-bottom: 2px solid;
+            background-color: var(--bg-color); /* Solid mask color */
+            position: sticky;
+            top: 0; /* Pinned at exactly 0px */
+            z-index: 10; /* Ensures it stays on top of cards */
+            width: 100%;
         }
 
         .disney-park { border-color: var(--disney-color); }
@@ -116,6 +87,27 @@
             letter-spacing: 2px;
             opacity: 0.7;
             margin-top: 4px;
+            margin-bottom: 12px;
+        }
+
+        /* Nav Dots Area inside each Park Header */
+        .nav-dots {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: #444;
+            transition: background-color 0.3s, transform 0.3s;
+        }
+
+        .dot.active {
+            background-color: var(--accent-color);
+            transform: scale(1.2);
         }
 
         /* Ride List Layout */
@@ -126,6 +118,7 @@
             max-width: 600px;
             width: 100%;
             margin: 0 auto;
+            padding: 10px 20px 40px 20px; /* Added spacing around lists */
         }
 
         .ride-card {
@@ -177,11 +170,6 @@
 </head>
 <body>
 
-    <header>
-        <h1>ORLANDO WAIT TIMES</h1>
-        <div class="nav-dots" id="navDots"></div>
-    </header>
-
     <div class="swiper-container" id="swiperContainer"></div>
 
     <script>
@@ -196,12 +184,15 @@
         ];
 
         const container = document.getElementById('swiperContainer');
-        const dotsContainer = document.getElementById('navDots');
 
-        // Initialize structure and components
+        function generateDotsMarkup(activeIndex) {
+            return parkIds.map((_, idx) => 
+                `<div class="dot ${idx === activeIndex ? 'active' : ''}"></div>`
+            ).join('');
+        }
+
         function initApp() {
             parkIds.forEach((park, index) => {
-                // 1. Build Page Elements
                 const page = document.createElement('div');
                 page.className = 'park-page';
                 page.id = `park-${index}`;
@@ -212,6 +203,9 @@
                     <div class="park-header ${brandClass}">
                         <div class="park-title">${park.name}</div>
                         <div class="park-brand">${park.brand}</div>
+                        <div class="nav-dots" id="dots-park-${index}">
+                            ${generateDotsMarkup(0)}
+                        </div>
                     </div>
                     <div class="ride-list" id="list-${park.id}">
                         <div class="status-msg">Loading live times...</div>
@@ -219,17 +213,10 @@
                 `;
                 container.appendChild(page);
 
-                // 2. Build Navigation Dots
-                const dot = document.createElement('div');
-                dot.className = `dot ${index === 0 ? 'active' : ''}`;
-                dotsContainer.appendChild(dot);
-
-                // 3. Fetch Data for this park
                 fetchParkData(park.id);
             });
         }
 
-        // Fetch Live Data from ThemeParks.wiki
         async function fetchParkData(parkId) {
             const listElement = document.getElementById(`list-${parkId}`);
             try {
@@ -238,20 +225,37 @@
                 
                 const data = await response.json();
                 
-                // Filter only ATTRACTION types that have active queues
-                const attractions = (data.liveData || []).filter(item => item.entityType === "ATTRACTION");
+                const attractions = (data.liveData || []).filter(item => {
+                    const isAttraction = item.entityType === "ATTRACTION";
+                    const name = item.name.toLowerCase();
+                    
+                    if (name.includes('meet') || name.includes('greeting') || name.includes('character') || name.includes('at her') || name.includes('at his')) return false;
+                    if (name.includes('show') || name.includes('spectacular') || name.includes('theater') || name.includes('parade') || name.includes('cinema') || name.includes('experience')) {
+                        if (name.includes('3d') || name.includes('4d') || name.includes('ride')) return isAttraction;
+                        return false;
+                    }
+                    if (name.includes('dining') || name.includes('restaurant') || name.includes('cafe')) return false;
+                    
+                    return isAttraction;
+                });
 
                 if (attractions.length === 0) {
-                    listElement.innerHTML = `<div class="status-msg">No active ride data found or park is closed.</div>`;
+                    listElement.innerHTML = `<div class="status-msg">No active rides found or park is closed.</div>`;
                     return;
                 }
 
-                // Sort Alphabetically
-                attractions.sort((a, b) => a.name.localeCompare(b.name));
+                attractions.sort((a, b) => {
+                    const waitA = (a.queue && a.queue.STANDBY) ? (a.queue.STANDBY.waitTime || 0) : -1;
+                    const waitB = (b.queue && b.queue.STANDBY) ? (b.queue.STANDBY.waitTime || 0) : -1;
+                    
+                    if (a.status !== "OPERATING" && b.status === "OPERATING") return 1;
+                    if (a.status === "OPERATING" && b.status !== "OPERATING") return -1;
+                    
+                    return waitB - waitA;
+                });
 
                 listElement.innerHTML = attractions.map(ride => {
                     const isOpen = ride.status === "OPERATING";
-                    // Access the standby wait time path safely based on API response structure
                     const waitTime = (isOpen && ride.queue && ride.queue.STANDBY) ? ride.queue.STANDBY.waitTime : null;
                     
                     let waitDisplay = "CLOSED";
@@ -286,22 +290,18 @@
             }
         }
 
-        // Track swipe position to update top dots dynamically
         container.addEventListener('scroll', () => {
             const width = container.clientWidth;
             const activeIndex = Math.round(container.scrollLeft / width);
             
-            const dots = document.querySelectorAll('.dot');
-            dots.forEach((dot, idx) => {
-                if (idx === activeIndex) {
-                    dot.classList.add('active');
-                } else {
-                    dot.classList.remove('active');
+            parkIds.forEach((_, index) => {
+                const dotsWrapper = document.getElementById(`dots-park-${index}`);
+                if (dotsWrapper) {
+                    dotsWrapper.innerHTML = generateDotsMarkup(activeIndex);
                 }
             });
         });
 
-        // Run app
         initApp();
     </script>
 </body>
